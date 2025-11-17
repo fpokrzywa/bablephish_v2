@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run build:*)",
+      "Bash(npm run dev:*)",
+      "Bash(npm run typecheck:*)",
+      "Bash(grep:*)",
+      "Bash(npx tsc:*)",
+      "Bash(taskkill:*)",
+      "WebFetch(domain:agenticweaver.com)",
+      "Bash(rd:*)",
+      "Bash(curl:*)"
+    ],
+    "deny": [],
+    "defaultMode": "acceptEdits",
+    "additionalDirectories": [
+      "S:\\"
+    ]
+  }
+}
