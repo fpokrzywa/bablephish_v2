@@ -1,0 +1,12 @@
+{
+  "/api/openai/assistants/route": "app/api/openai/assistants/route.js",
+  "/(portal)/prompt-catalog/page": "app/(portal)/prompt-catalog/page.js",
+  "/(portal)/assistants/page": "app/(portal)/assistants/page.js",
+  "/(portal)/answers/[id]/page": "app/(portal)/answers/[id]/page.js",
+  "/(portal)/automations/[id]/page": "app/(portal)/automations/[id]/page.js",
+  "/(portal)/guidelines/page": "app/(portal)/guidelines/page.js",
+  "/(portal)/admin/page": "app/(portal)/admin/page.js",
+  "/(portal)/profile/page": "app/(portal)/profile/page.js",
+  "/(portal)/resources/page": "app/(portal)/resources/page.js",
+  "/(portal)/settings/page": "app/(portal)/settings/page.js"
+}

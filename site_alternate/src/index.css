@@ -1,0 +1,78 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  font-family: 'Inter', sans-serif;
+  background-color: hsl(var(--background));
+}
+
+@layer base {
+  :root {
+    --background: 210 100% 98%;
+    --foreground: 204 22% 26%;
+    --primary: 204 78% 44%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 100% 92%;
+    --secondary-foreground: 212 100% 15%;
+    --muted: 210 100% 90%;
+    --muted-foreground: 210 40% 40%;
+    --accent: 204 78% 90%;
+    --accent-foreground: 204 78% 15%;
+    --border: 204 78% 44%;
+    --input: 204 78% 44%;
+    --ring: 204 78% 44%;
+  }
+  .dark {
+    --background: 222 47% 11%;
+    --foreground: 210 40% 98%;
+    --primary: 210 40% 98%;
+    --primary-foreground: 210 40% 9%;
+    --secondary: 217 32% 17%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217 32% 17%;
+    --muted-foreground: 217 20% 65%;
+    --accent: 217 32% 17%;
+    --accent-foreground: 210 40% 98%;
+    --border: 217 32% 17%;
+    --input: 217 32% 17%;
+    --ring: 212 100% 75%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+@keyframes slide-in-right {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.animate-slide-in-right {
+  animation: slide-in-right 0.3s ease-in-out;
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+.animate-float {
+  animation: float 2s ease-in-out infinite;
+}

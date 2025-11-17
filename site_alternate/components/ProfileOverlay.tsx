@@ -1,0 +1,648 @@
+import React, { useState, useEffect } from 'react';
+import { X, User, Shield, CheckCircle, XCircle, Settings, Mail, Calendar, RefreshCw } from 'lucide-react';
+import { getCompanyName } from '@/lib/companyConfig';
+import { getCompanyBotName } from '@/lib/companyConfig';
+import { openAIService, type Assistant } from '@/lib/services/openAIService';
+
+interface UserProfile {
+  firstName: string;
+  lastName: string;
+  email: string;
+  role: string;
+  department: string;
+  company: string;
+  joinDate: string;
+  hasAcceptedGuidelines: boolean;
+  isAdmin: boolean;
+  lastLogin: string;
+  preferredAssistant: string;
+}
+
+interface ProfileOverlayProps {
+  isOpen: boolean;
+  onClose: () => void;
+}
+
+const ProfileOverlay: React.FC<ProfileOverlayProps> = ({ isOpen, onClose }) => {
+  const [profile, setProfile] = useState<UserProfile>({
+    firstName: '',
+    lastName: '',
+    email: '',
+    role: '',
+    department: '',
+    company: getCompanyName(),
+    joinDate: '',
+    hasAcceptedGuidelines: false,
+    isAdmin: false,
+    lastLogin: '',
+    preferredAssistant: getCompanyBotName()
+  });
+
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedProfile, setEditedProfile] = useState<UserProfile>(profile);
+  const [openaiAssistants, setOpenaiAssistants] = useState<Assistant[]>([]);
+  const [isRefreshingAssistants, setIsRefreshingAssistants] = useState(false);
+  const [companies, setCompanies] = useState<Array<{id: string, name: string}>>([]);
+  const [isLoadingCompanies, setIsLoadingCompanies] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+
+  const loadCompanies = async () => {
+    setIsLoadingCompanies(true);
+    try {
+      const webhookUrl = process.env.NEXT_PUBLIC_N8N_COMPANY_WEBHOOK_URL;
+      if (!webhookUrl) {
+        // Fallback to default company if webhook URL is not configured
+        setCompanies([{ id: '1', name: 'BablePhish' }]);
+        return;
+      }
+
+      const response = await fetch(`${webhookUrl}?id=all`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch companies');
+      }
+
+      const data = await response.json();
+      
+      // Handle different response formats
+      let companiesData = [];
+      if (Array.isArray(data)) {
+        companiesData = data;
+      } else if (data.companies && Array.isArray(data.companies)) {
+        companiesData = data.companies;
+      } else if (data.data && Array.isArray(data.data)) {
+        companiesData = data.data;
+      }
+
+      // Map to consistent format
+      const formattedCompanies = companiesData.map((company: any) => ({
+        id: company.id || company._id || company.company_id || Math.random().toString(),
+        name: company['Company Name'] || company.name || company.company_name || company.title || 'Unknown Company'
+      }));
+
+      setCompanies(formattedCompanies.length > 0 ? formattedCompanies : [{ id: '1', name: 'BablePhish' }]);
+    } catch (error) {
+      console.error('Error loading companies:', error);
+      // Fallback to default company on error
+      setCompanies([{ id: '1', name: 'BablePhish' }]);
+    } finally {
+      setIsLoadingCompanies(false);
+    }
+  };
+
+  // Load profile from localStorage on component mount
+  useEffect(() => {
+    const savedProfile = localStorage.getItem('userProfile');
+    console.log('🔍 ProfileOverlay: Loading profile from localStorage on mount:', savedProfile);
+    if (savedProfile) {
+      try {
+        const parsedProfile = JSON.parse(savedProfile);
+        console.log('📋 ProfileOverlay: Parsed profile data on mount:', parsedProfile);
+        
+        // Only update if we have actual data (not empty fields)
+        if (parsedProfile.firstName || parsedProfile.lastName || parsedProfile.email) {
+          console.log('✅ ProfileOverlay: Setting profile with valid data');
+          setProfile(parsedProfile);
+          setEditedProfile(parsedProfile);
+        } else {
+          console.log('⚠️ ProfileOverlay: Profile data is empty, keeping default state');
+        }
+      } catch (error) {
+        console.error('❌ ProfileOverlay: Error parsing saved profile:', error);
+      }
+    } else {
+      console.log('⚠️ ProfileOverlay: No saved profile found in localStorage');
+    }
+  }, []);
+
+  // Load OpenAI assistants
+  useEffect(() => {
+    loadOpenAIAssistants();
+    loadCompanies();
+  }, []);
+
+  // Listen for profile changes
+  useEffect(() => {
+    const handleStorageChange = () => {
+      const savedProfile = localStorage.getItem('userProfile');
+      console.log('🔄 ProfileOverlay: Storage change detected, new profile:', savedProfile);
+      if (savedProfile) {
+        try {
+          const parsedProfile = JSON.parse(savedProfile);
+          // Only update if we have actual data
+          if (parsedProfile.firstName || parsedProfile.lastName || parsedProfile.email) {
+            console.log('✅ ProfileOverlay: Updating profile from storage change');
+            setProfile(parsedProfile);
+            setEditedProfile(parsedProfile);
+          }
+        } catch (error) {
+          console.error('❌ ProfileOverlay: Error parsing profile from storage change:', error);
+        }
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
+
+  const loadOpenAIAssistants = async () => {
+    try {
+      const result = await openAIService.listAssistants();
+      const convertedAssistants = result.assistants.map(assistant => 
+        openAIService.formatAssistantForDisplay(assistant)
+      );
+      setOpenaiAssistants(convertedAssistants);
+    } catch (error) {
+      console.error('Error loading OpenAI assistants:', error);
+      // Fallback to empty array if OpenAI assistants can't be loaded
+      setOpenaiAssistants([]);
+    }
+  };
+
+  const handleRefreshAssistants = async () => {
+    setIsRefreshingAssistants(true);
+    try {
+      const result = await openAIService.listAssistants(true); // Force refresh
+      const convertedAssistants = result.assistants.map(assistant => 
+        openAIService.formatAssistantForDisplay(assistant)
+      );
+      setOpenaiAssistants(convertedAssistants);
+    } catch (error) {
+      console.error('Error refreshing OpenAI assistants:', error);
+    } finally {
+      setIsRefreshingAssistants(false);
+    }
+  };
+
+  // Save profile to localStorage whenever it changes
+  useEffect(() => {
+    // Only save if profile has actual data to prevent overwriting good data with empty data
+    if (profile.firstName || profile.lastName || profile.email) {
+      console.log('💾 ProfileOverlay: Saving profile to localStorage:', profile);
+      localStorage.setItem('userProfile', JSON.stringify(profile));
+      // Trigger storage event to notify other components
+      window.dispatchEvent(new Event('storage'));
+    } else {
+      console.log('⚠️ ProfileOverlay: Not saving empty profile data');
+    }
+  }, [profile]);
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    setSaveError(null);
+    setSaveSuccess(false);
+
+    try {
+      // Save to webhook if configured
+      const updateWebhookUrl = process.env.NEXT_PUBLIC_N8N_UPDATE_USER_WEBHOOK_URL;
+      
+      if (updateWebhookUrl) {
+        console.log('💾 ProfileOverlay: Saving profile to webhook:', updateWebhookUrl);
+        
+        // Prepare data for webhook - map back to database format
+        const webhookData = {
+          id: profile.email, // Use email as ID
+          email: editedProfile.email,
+          firstname: editedProfile.firstName,
+          lastname: editedProfile.lastName,
+          role: editedProfile.role,
+          department: editedProfile.department,
+          Company: editedProfile.company,
+          // Keep existing fields that shouldn't be changed
+          active: "True",
+          password: undefined // Don't update password unless specifically changed
+        };
+
+        console.log('📤 ProfileOverlay: Sending webhook data:', webhookData);
+
+        const response = await fetch(updateWebhookUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ data: webhookData })
+        });
+
+        if (!response.ok) {
+          throw new Error(`Webhook responded with status: ${response.status} - ${response.statusText}`);
+        }
+
+        const result = await response.json();
+        console.log('✅ ProfileOverlay: Profile saved to webhook successfully:', result);
+        
+        setSaveSuccess(true);
+        setTimeout(() => setSaveSuccess(false), 3000);
+      } else {
+        console.warn('⚠️ ProfileOverlay: NEXT_PUBLIC_N8N_UPDATE_USER_WEBHOOK_URL not configured, saving locally only');
+      }
+
+      // Update local state and cache
+      setProfile(editedProfile);
+      
+      // Update localStorage cache
+      localStorage.setItem('userProfile', JSON.stringify(editedProfile));
+      
+      // Trigger storage event to notify other components
+      window.dispatchEvent(new Event('storage'));
+      
+      setIsEditing(false);
+      
+      console.log('✅ ProfileOverlay: Profile updated successfully');
+      
+    } catch (error) {
+      console.error('❌ ProfileOverlay: Error saving profile:', error);
+      setSaveError(error instanceof Error ? error.message : 'Failed to save profile');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleCancel = () => {
+    setEditedProfile(profile);
+    setIsEditing(false);
+  };
+
+  const handleGuidelinesToggle = () => {
+    const updatedProfile = { ...profile, hasAcceptedGuidelines: !profile.hasAcceptedGuidelines };
+    setProfile(updatedProfile);
+    setEditedProfile(updatedProfile);
+    
+    // Trigger a custom event to notify other components
+    window.dispatchEvent(new Event('storage'));
+  };
+
+  const handleAdminToggle = () => {
+    const updatedProfile = { ...profile, isAdmin: !profile.isAdmin };
+    setProfile(updatedProfile);
+    setEditedProfile(updatedProfile);
+    
+    // Trigger a custom event to notify other components
+    window.dispatchEvent(new Event('storage'));
+  };
+
+  // Default assistants as fallback
+  const defaultAssistants = [
+    getCompanyBotName(),
+    'IT Support',
+    'HR Support',
+    'Advance Policies Assistant',
+    'Redact Assistant',
+    'ADEPT Assistant',
+    'RFP Assistant',
+    'Resume Assistant'
+  ];
+
+  // Use OpenAI assistants if available, otherwise use default list
+  const availableAssistants = openaiAssistants.length > 0 
+    ? openaiAssistants.map(assistant => assistant.name)
+    : defaultAssistants;
+
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="flex-1 bg-gray-50 overflow-y-auto">
+      <div className="max-w-4xl mx-auto p-6">
+        {/* Header */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 mb-6">
+          <div className="flex items-center justify-between p-6 border-b border-gray-200">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                <User className="w-5 h-5 text-blue-600" />
+              </div>
+              <div>
+                <h2 className="text-xl font-semibold text-gray-800">User Profile</h2>
+                <p className="text-sm text-gray-500">Manage your account settings and preferences</p>
+              </div>
+            </div>
+            <button 
+              onClick={onClose}
+              className="p-2 text-gray-400 hover:text-gray-600 transition-colors rounded-lg hover:bg-gray-50"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+        <div className="max-w-4xl mx-auto px-6 py-6">
+          {/* Content */}
+          <div className="space-y-6">
+            {/* Profile Information */}
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-800">Profile Information</h3>
+                <button
+                  onClick={() => setIsEditing(!isEditing)}
+                  className="flex items-center space-x-2 px-3 py-1 text-sm text-blue-600 hover:text-blue-700 transition-colors"
+                >
+                  <Settings className="w-4 h-4" />
+                  <span>{isEditing ? 'Cancel Edit' : 'Edit'}</span>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">First Name</label>
+                  {isEditing ? (
+                    <input
+                      type="text"
+                      value={editedProfile.firstName}
+                      onChange={(e) => setEditedProfile({ ...editedProfile, firstName: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  ) : (
+                    <p className="text-gray-900">{profile.firstName}</p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Last Name</label>
+                  {isEditing ? (
+                    <input
+                      type="text"
+                      value={editedProfile.lastName}
+                      onChange={(e) => setEditedProfile({ ...editedProfile, lastName: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  ) : (
+                    <p className="text-gray-900">{profile.lastName}</p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                  {isEditing ? (
+                    <input
+                      type="email"
+                      value={editedProfile.email}
+                      onChange={(e) => setEditedProfile({ ...editedProfile, email: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  ) : (
+                    <div className="flex items-center space-x-2">
+                      <Mail className="w-4 h-4 text-gray-400" />
+                      <p className="text-gray-900">{profile.email}</p>
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
+                  {isEditing ? (
+                    <input
+                      type="text"
+                      value={editedProfile.role}
+                      onChange={(e) => setEditedProfile({ ...editedProfile, role: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  ) : (
+                    <p className="text-gray-900">{profile.role}</p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Department</label>
+                  {isEditing ? (
+                    <select
+                      value={editedProfile.department}
+                      onChange={(e) => setEditedProfile({ ...editedProfile, department: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    >
+                      <option>Research & Development</option>
+                      <option>Commercial</option>
+                      <option>Human Resources</option>
+                      <option>Information Technology</option>
+                      <option>Compliance</option>
+                      <option>Finance</option>
+                    </select>
+                  ) : (
+                    <p className="text-gray-900">{profile.department}</p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Company</label>
+                  {isEditing ? (
+                    <div className="flex items-center space-x-2">
+                      <select
+                        value={editedProfile.company || ''}
+                        onChange={(e) => setEditedProfile({ ...editedProfile, company: e.target.value })}
+                        className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        disabled={isLoadingCompanies}
+                      >
+                        {isLoadingCompanies ? (
+                          <option>Loading companies...</option>
+                        ) : (
+                          companies.map((company) => (
+                            <option key={company.id} value={company.name}>
+                              {company.name}
+                            </option>
+                          ))
+                        )}
+                      </select>
+                      <button
+                        onClick={loadCompanies}
+                        disabled={isLoadingCompanies}
+                        className="p-2 text-gray-400 hover:text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="Refresh companies"
+                      >
+                        <RefreshCw className={`w-4 h-4 ${isLoadingCompanies ? 'animate-spin' : ''}`} />
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="text-gray-900">{profile.company || 'Not specified'}</p>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Join Date</label>
+                  {isEditing ? (
+                    <input
+                      type="date"
+                      value={profile.joinDate}
+                      onChange={(e) => setEditedProfile({ ...editedProfile, joinDate: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  ) : (
+                    <div className="flex items-center space-x-2">
+                      <Calendar className="w-4 h-4 text-gray-400" />
+                      <p className="text-gray-900">{formatDate(profile.joinDate)}</p>
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Last Login</label>
+                  <p className="text-gray-900">{profile.lastLogin}</p>
+                </div>
+              </div>
+
+              {isEditing && (
+                <div className="flex items-center justify-end space-x-3 mt-4 pt-4 border-t border-gray-200">
+                  {saveError && (
+                    <div className="flex-1 text-sm text-red-600">
+                      Error: {saveError}
+                    </div>
+                  )}
+                  {saveSuccess && (
+                    <div className="flex-1 text-sm text-green-600">
+                      Profile saved successfully!
+                    </div>
+                  )}
+                  <button
+                    onClick={handleCancel}
+                    className="px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors"
+                    disabled={isSaving}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSave}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+                    disabled={isSaving}
+                  >
+                    {isSaving && (
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    )}
+                    <span>{isSaving ? 'Saving...' : 'Save Changes'}</span>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Preferences */}
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+              <h3 className="text-lg font-semibold text-gray-800 mb-4">Preferences</h3>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Preferred Assistant</label>
+                <div className="flex items-center space-x-2">
+                  <select
+                    value={profile.preferredAssistant}
+                    onChange={(e) => setProfile({ ...profile, preferredAssistant: e.target.value })}
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    {availableAssistants.map((assistant) => (
+                      <option key={assistant} value={assistant}>
+                        {assistant}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={handleRefreshAssistants}
+                    disabled={isRefreshingAssistants}
+                    className="p-2 text-gray-400 hover:text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Refresh assistants from OpenAI"
+                  >
+                    <RefreshCw className={`w-4 h-4 ${isRefreshingAssistants ? 'animate-spin' : ''}`} />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Account Status */}
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+              <h3 className="text-lg font-semibold text-gray-800 mb-4">Account Status</h3>
+              
+              <div className="space-y-4">
+                {/* Guidelines Acceptance */}
+                <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-200">
+                  <div className="flex items-center space-x-3">
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                      profile.hasAcceptedGuidelines ? 'bg-green-100' : 'bg-red-100'
+                    }`}>
+                      {profile.hasAcceptedGuidelines ? (
+                        <CheckCircle className="w-5 h-5 text-green-600" />
+                      ) : (
+                        <XCircle className="w-5 h-5 text-red-600" />
+                      )}
+                    </div>
+                    <div>
+                      <h4 className="font-medium text-gray-900">Guidelines Acceptance</h4>
+                      <p className="text-sm text-gray-500">
+                        {profile.hasAcceptedGuidelines 
+                          ? 'You have accepted the AI usage guidelines' 
+                          : 'Please accept the AI usage guidelines to continue'
+                        }
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={handleGuidelinesToggle}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                      profile.hasAcceptedGuidelines ? 'bg-blue-600' : 'bg-gray-200'
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                        profile.hasAcceptedGuidelines ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {/* Admin Status */}
+                <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-200">
+                  <div className="flex items-center space-x-3">
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                      profile.isAdmin ? 'bg-blue-100' : 'bg-gray-100'
+                    }`}>
+                      <Shield className={`w-5 h-5 ${profile.isAdmin ? 'text-blue-600' : 'text-gray-400'}`} />
+                    </div>
+                    <div>
+                      <h4 className="font-medium text-gray-900">Administrator Access</h4>
+                      <p className="text-sm text-gray-500">
+                        {profile.isAdmin 
+                          ? 'You have administrator privileges' 
+                          : 'Standard user access'
+                        }
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={handleAdminToggle}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                      profile.isAdmin ? 'bg-blue-600' : 'bg-gray-200'
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                        profile.isAdmin ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Account Actions */}
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+              <h3 className="text-lg font-semibold text-gray-800 mb-4">Account Actions</h3>
+              <div className="space-y-3">
+                <button className="w-full text-left px-4 py-3 bg-gray-50 rounded-lg border border-gray-200 hover:bg-gray-100 transition-colors">
+                  <div className="font-medium text-gray-900">Export Data</div>
+                  <div className="text-sm text-gray-500">Download your account data and chat history</div>
+                </button>
+                <button className="w-full text-left px-4 py-3 bg-gray-50 rounded-lg border border-gray-200 hover:bg-gray-100 transition-colors">
+                  <div className="font-medium text-gray-900">Reset Preferences</div>
+                  <div className="text-sm text-gray-500">Reset all settings to default values</div>
+                </button>
+                <button className="w-full text-left px-4 py-3 bg-red-50 rounded-lg border border-red-200 hover:bg-red-100 transition-colors text-red-600">
+                  <div className="font-medium">Delete Account</div>
+                  <div className="text-sm text-red-500">Permanently delete your account and all data</div>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default ProfileOverlay;
